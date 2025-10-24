@@ -13,7 +13,7 @@ import {
   Visibility as ViewIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import axios from '../../api/axios';
 import { AuthContext } from '../../context/AuthContext';
 
 const StatCard = ({ title, value, icon, bgcolor }) => (
@@ -46,7 +46,6 @@ const StatCard = ({ title, value, icon, bgcolor }) => (
       }}
     >
       <Box sx={{ textAlign: 'center' }}>
-        {/* Icon at top */}
         <Box
           sx={{
             backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -63,12 +62,10 @@ const StatCard = ({ title, value, icon, bgcolor }) => (
           })}
         </Box>
         
-        {/* Value in middle */}
         <Typography variant="h2" sx={{ fontWeight: 'bold', mb: 1 }}>
           {value}
         </Typography>
         
-        {/* Title at bottom */}
         <Typography variant="body1" sx={{ opacity: 0.95, fontWeight: 500, letterSpacing: 0.5 }}>
           {title}
         </Typography>
@@ -76,7 +73,6 @@ const StatCard = ({ title, value, icon, bgcolor }) => (
     </CardContent>
   </Card>
 );
-
 
 const BatchOwnerDashboard = () => {
   const { user } = useContext(AuthContext);
@@ -99,23 +95,43 @@ const BatchOwnerDashboard = () => {
 
   const fetchBatchData = async () => {
     try {
-      const batchResponse = await axios.get(`http://localhost:5000/api/batches/owner/${user.id}`);
-      const batchData = Array.isArray(batchResponse.data) ? batchResponse.data[0] : batchResponse.data;
+      const batchesResponse = await axios.get('/api/batches');
+      const myBatch = batchesResponse.data.find(b => b.owner_id?._id === user.id);
       
-      if (!batchData) {
+      if (!myBatch) {
         setError('No batch assigned to you. Please contact the administrator.');
         setLoading(false);
         return;
       }
       
-      setBatch(batchData);
+      const formattedBatch = {
+        id: myBatch._id,
+        name: myBatch.name,
+        owner_id: myBatch.owner_id?._id
+      };
+      
+      setBatch(formattedBatch);
 
-      const studentsResponse = await axios.get(`http://localhost:5000/api/users/batch/${batchData.id}`);
-      setStudents(studentsResponse.data);
+      const usersResponse = await axios.get('/api/users');
+      const batchStudents = usersResponse.data.filter(
+        u => u.role === 'student' && u.batch_id?._id === formattedBatch.id
+      );
+      
+      const formattedStudents = batchStudents.map(student => ({
+        id: student._id,
+        name: student.name,
+        email: student.email
+      }));
+      
+      setStudents(formattedStudents);
 
       try {
-        const todayAttendanceResponse = await axios.get(`http://localhost:5000/api/attendance/today/${batchData.id}`);
-        const todayAttendance = todayAttendanceResponse.data;
+        const today = new Date().toISOString().split('T')[0];
+        const attendanceResponse = await axios.get(
+          `/api/attendance/date/${today}/batch/${formattedBatch.id}`
+        );
+        
+        const todayAttendance = attendanceResponse.data;
         const attendanceMarked = todayAttendance && todayAttendance.length > 0;
         
         let present = 0, absent = 0, late = 0;
@@ -129,7 +145,7 @@ const BatchOwnerDashboard = () => {
         }
         
         setStats({
-          totalStudents: studentsResponse.data.length,
+          totalStudents: formattedStudents.length,
           todayPresent: present,
           todayAbsent: absent,
           todayLate: late,
@@ -137,7 +153,7 @@ const BatchOwnerDashboard = () => {
         });
       } catch (err) {
         setStats({
-          totalStudents: studentsResponse.data.length,
+          totalStudents: formattedStudents.length,
           todayPresent: 0,
           todayAbsent: 0,
           todayLate: 0,
@@ -147,7 +163,8 @@ const BatchOwnerDashboard = () => {
 
       setLoading(false);
     } catch (err) {
-      setError('No batch assigned to you. Please contact the administrator.');
+      console.error('Error fetching batch data:', err);
+      setError('Failed to load batch information. Please try again.');
       setLoading(false);
     }
   };
@@ -179,7 +196,6 @@ const BatchOwnerDashboard = () => {
   return (
     <Container maxWidth="xl">
       <Box sx={{ mt: 4, mb: 4 }}>
-        {/* Header */}
         <Box sx={{ mb: 4 }}>
           <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
             Welcome, {user.name}! 👋
@@ -227,7 +243,6 @@ const BatchOwnerDashboard = () => {
             </Grid>
           </Grid>
 
-          {/* Right Side - Quick Actions Panel */}
           <Grid item xs={12} md={6} lg={8}>
             <Paper 
               elevation={4} 
@@ -303,7 +318,7 @@ const BatchOwnerDashboard = () => {
                     variant="contained"
                     size="large"
                     startIcon={<EditIcon />}
-                    onClick={() => navigate('/batch-owner/edit-attendance')}
+                    onClick={() => navigate('/batch-owner/add-attendance')}
                     sx={{
                       backgroundColor: 'white',
                       color: '#11998e',
@@ -339,7 +354,6 @@ const BatchOwnerDashboard = () => {
             </Paper>
           </Grid>
 
-          {/* Student List - Full Width Below */}
           <Grid item xs={12}>
             <Paper elevation={3} sx={{ p: 3, borderRadius: 2 }}>
               <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>
@@ -347,8 +361,8 @@ const BatchOwnerDashboard = () => {
               </Typography>
               {students.length > 0 ? (
                 <Grid container spacing={2}>
-                  {students.map((student, index) => (
-                    <Grid item xs={12} sm={6} md={4} lg={3} key={index}>
+                  {students.map((student) => (
+                    <Grid item xs={12} sm={6} md={4} lg={3} key={student.id}>
                       <Box
                         sx={{
                           p: 2,

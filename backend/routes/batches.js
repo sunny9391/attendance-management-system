@@ -1,84 +1,153 @@
 import express from 'express';
-import pool from '../db.js';
-import { authenticateToken, authorizeRole } from '../middleware/auth.js';
+import Batch from '../models/Batch.js';
+import User from '../models/User.js';
 
 const router = express.Router();
 
-// Get all batches
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const [batches] = await pool.query(
-      "SELECT b.*, u.name as owner_name FROM batches b LEFT JOIN users u ON b.owner_id = u.id"
-    );
+    const batches = await Batch.find()
+      .populate('owner_id', 'name email')
+      .sort({ createdAt: -1 });
     res.json(batches);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// Get batch by owner
-router.get('/owner/:ownerid', authenticateToken, async (req, res) => {
-  const ownerid = req.params.ownerid;
+router.get('/:id', async (req, res) => {
   try {
-    const [batches] = await pool.query(
-      "SELECT * FROM batches WHERE owner_id = ?",
-      [ownerid]
-    );
+    const batch = await Batch.findById(req.params.id)
+      .populate('owner_id', 'name email');
     
-    if (batches.length === 0)
-      return res.status(404).json({ message: "No batch found for this owner" });
+    if (!batch) {
+      return res.status(404).json({ message: 'Batch not found' });
+    }
     
-    res.json(batches);
+    res.json(batch);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
 
-// Add new batch (Admin only)
-router.post('/', authenticateToken, authorizeRole('admin', 'batch_owner'), async (req, res) => {
+router.post('/', async (req, res) => {
   const { name, owner_id } = req.body;
-  
-  if (!name || !owner_id)
-    return res.status(400).json({ error: "Name and owner_id are required" });
+
+  if (!name) {
+    return res.status(400).json({ message: 'Batch name is required' });
+  }
 
   try {
-    await pool.query(
-      "INSERT INTO batches (name, owner_id) VALUES (?, ?)",
-      [name, owner_id]
-    );
-    res.status(201).json({ message: "Batch added successfully" });
+    if (owner_id) {
+      const existingBatch = await Batch.findOne({ owner_id });
+      if (existingBatch) {
+        return res.status(400).json({ 
+          message: 'This batch owner already has an assigned batch. Each owner can manage only one batch.' 
+        });
+      }
+
+      const owner = await User.findById(owner_id);
+      if (!owner) {
+        return res.status(404).json({ message: 'Batch owner not found' });
+      }
+      if (owner.role !== 'batch_owner') {
+        return res.status(400).json({ message: 'Selected user is not a batch owner' });
+      }
+    }
+
+    const batch = new Batch({
+      name,
+      owner_id: owner_id || null
+    });
+
+    const savedBatch = await batch.save();
+    const populatedBatch = await Batch.findById(savedBatch._id)
+      .populate('owner_id', 'name email');
+    
+    res.status(201).json(populatedBatch);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ message: err.message });
   }
 });
 
-// Update batch
-router.put('/:id',authenticateToken, async (req, res) => {
-  const { id } = req.params;
+router.put('/:id', async (req, res) => {
   const { name, owner_id } = req.body;
-  
+
   try {
-    await pool.query(
-      "UPDATE batches SET name = ?, owner_id = ? WHERE id = ?",
-      [name, owner_id, id]
+    const batch = await Batch.findById(req.params.id);
+    if (!batch) {
+      return res.status(404).json({ message: 'Batch not found' });
+    }
+
+    if (owner_id && owner_id !== batch.owner_id?.toString()) {
+      const existingBatch = await Batch.findOne({ 
+        owner_id, 
+        _id: { $ne: req.params.id } 
+      });
+      
+      if (existingBatch) {
+        return res.status(400).json({ 
+          message: 'This batch owner already has an assigned batch. Each owner can manage only one batch.' 
+        });
+      }
+
+      if (owner_id) {
+        const owner = await User.findById(owner_id);
+        if (!owner) {
+          return res.status(404).json({ message: 'Batch owner not found' });
+        }
+        if (owner.role !== 'batch_owner') {
+          return res.status(400).json({ message: 'Selected user is not a batch owner' });
+        }
+      }
+    }
+
+    if (name) batch.name = name;
+    if (owner_id !== undefined) batch.owner_id = owner_id || null;
+
+    const updatedBatch = await batch.save();
+    const populatedBatch = await Batch.findById(updatedBatch._id)
+      .populate('owner_id', 'name email');
+    
+    res.json(populatedBatch);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const batch = await Batch.findById(req.params.id);
+    if (!batch) {
+      return res.status(404).json({ message: 'Batch not found' });
+    }
+
+    await batch.deleteOne();
+    res.json({ message: 'Batch deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.get('/available/owners', async (req, res) => {
+  try {
+    const allOwners = await User.find({ role: 'batch_owner' })
+      .select('name email')
+      .sort({ name: 1 });
+
+    const batchesWithOwners = await Batch.find({ owner_id: { $ne: null } })
+      .select('owner_id');
+    
+    const assignedOwnerIds = batchesWithOwners.map(b => b.owner_id.toString());
+
+    const availableOwners = allOwners.filter(
+      owner => !assignedOwnerIds.includes(owner._id.toString())
     );
-    res.json({ message: "Batch updated successfully" });
+
+    res.json(availableOwners);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
-
-// Delete batch
-router.delete('/:id', authenticateToken,async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    await pool.query("DELETE FROM batches WHERE id = ?", [id]);
-    res.json({ message: "Batch deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
 
 export default router;

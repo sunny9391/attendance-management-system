@@ -99,7 +99,6 @@ const Layout = ({ children }) => {
         position="fixed"
         sx={{ 
           zIndex: (theme) => theme.zIndex.drawer + 1,
-          borderRadius: 0  // Remove rounded borders
         }}
       >
         <Toolbar>
@@ -144,7 +143,6 @@ const Layout = ({ children }) => {
             width: drawerWidth, 
             boxSizing: 'border-box', 
             mt: 8,
-            borderRadius: 0  // Remove rounded borders
           },
         }}
       >
@@ -161,7 +159,6 @@ const Layout = ({ children }) => {
           '& .MuiDrawer-paper': { 
             width: drawerWidth, 
             boxSizing: 'border-box',
-            borderRadius: 0  // Remove rounded borders
           },
         }}
       >

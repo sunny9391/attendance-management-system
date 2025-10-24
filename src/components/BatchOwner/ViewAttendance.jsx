@@ -1,66 +1,159 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { Container, Paper, Typography, Box, TextField } from '@mui/material';
-import { DataGrid } from '@mui/x-data-grid';
-import axios from 'axios';
-import { AuthContext } from '../../context/AuthContext';
+import React, { useState, useEffect } from 'react';
+import {
+  Box,
+  Typography,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Chip,
+  CircularProgress,
+  Alert
+} from '@mui/material';
+import { useAuth } from '../../context/AuthContext';
+import axios from '../../api/axios';
 
 const ViewAttendance = () => {
-  const { user } = useContext(AuthContext);
-  const [rows, setRows] = useState([]);
+  const { user } = useAuth();
+  const [batch, setBatch] = useState(null);
+  const [attendance, setAttendance] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [batchId, setBatchId] = useState(null);
 
   useEffect(() => {
     fetchBatchAndAttendance();
-  }, []);
+  }, [user]);
 
   const fetchBatchAndAttendance = async () => {
     try {
-      const batchResponse = await axios.get(`http://localhost:5000/api/batches/owner/${user.id}`);
-      const batch = Array.isArray(batchResponse.data) ? batchResponse.data[0] : batchResponse.data;
-      setBatchId(batch.id);
+      setLoading(true);
+      
+      const batchesResponse = await axios.get('/api/batches');
+      const myBatch = batchesResponse.data.find(b => b.owner_id?._id === user.id);
+      
+      if (!myBatch) {
+        setLoading(false);
+        return;
+      }
 
-      const attendanceResponse = await axios.get(`http://localhost:5000/api/attendance/batch/${batch.id}`);
-      const formattedData = attendanceResponse.data.map((record, index) => ({
-        id: record.id || index,
-        studentName: record.studentname,
-        date: new Date(record.date).toLocaleDateString(),
-        status: record.status
+      setBatch({
+        id: myBatch._id,
+        name: myBatch.name
+      });
+
+      const attendanceResponse = await axios.get(
+        `/api/attendance/batch/${myBatch._id}`
+      );
+      
+      const attendanceWithId = attendanceResponse.data.map(record => ({
+        id: record._id,
+        studentname: record.studentname,
+        date: record.date,
+        status: record.status,
+        createdAt: record.createdAt
       }));
-      setRows(formattedData);
-    } catch (err) {
-      console.error(err);
+      
+      setAttendance(attendanceWithId);
+    } catch (error) {
+      console.error('Error fetching attendance:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const columns = [
-    { field: 'studentName', headerName: 'Student Name', flex: 1 },
-    { field: 'date', headerName: 'Date', flex: 1 },
-    { field: 'status', headerName: 'Status', flex: 1 }
-  ];
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'present':
+        return 'success';
+      case 'absent':
+        return 'error';
+      case 'late':
+        return 'warning';
+      default:
+        return 'default';
+    }
+  };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (!batch) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="warning">
+          No batch assigned to you. Please contact the administrator.
+        </Alert>
+      </Box>
+    );
+  }
 
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ mt: 4 }}>
-        <Paper elevation={3} sx={{ p: 3 }}>
-          <Typography variant="h5" gutterBottom color="primary">
-            Attendance History
-          </Typography>
-          <Box sx={{ height: 600, width: '100%', mt: 2 }}>
-            <DataGrid
-              rows={rows}
-              columns={columns}
-              pageSize={10}
-              rowsPerPageOptions={[10, 25, 50]}
-              loading={loading}
-              disableSelectionOnClick
-            />
-          </Box>
-        </Paper>
-      </Box>
-    </Container>
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, mb: 1 }}>
+        📋 Attendance History
+      </Typography>
+      <Typography variant="h6" gutterBottom sx={{ fontWeight: 400, mb: 3, color: '#666' }}>
+        Batch: <strong>{batch.name}</strong>
+      </Typography>
+
+      <Paper elevation={3} sx={{ borderRadius: '12px', overflow: 'hidden' }}>
+        <TableContainer>
+          <Table>
+            <TableHead sx={{ backgroundColor: '#f5f5f5' }}>
+              <TableRow>
+                <TableCell sx={{ fontWeight: 600 }}>Student Name</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Date</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>Marked On</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {attendance.length > 0 ? (
+                attendance.map((record) => (
+                  <TableRow
+                    key={record.id}
+                    sx={{
+                      '&:hover': {
+                        backgroundColor: '#f9f9f9'
+                      }
+                    }}
+                  >
+                    <TableCell>{record.studentname}</TableCell>
+                    <TableCell>{new Date(record.date).toLocaleDateString('en-IN')}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={record.status.toUpperCase()}
+                        color={getStatusColor(record.status)}
+                        size="small"
+                        sx={{ fontWeight: 600 }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {new Date(record.createdAt).toLocaleString('en-IN')}
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                    <Typography color="text.secondary">
+                      No attendance records found
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Paper>
+    </Box>
   );
 };
 

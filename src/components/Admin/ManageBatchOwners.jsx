@@ -5,7 +5,8 @@ import {
   TableCell, TableContainer, TableHead, TableRow, IconButton, Box, Alert
 } from '@mui/material';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
-import axios from 'axios';
+import axios from '../../api/axios';
+
 
 const ManageBatchOwners = () => {
   const [owners, setOwners] = useState([]);
@@ -28,9 +29,16 @@ const ManageBatchOwners = () => {
 
   const fetchOwners = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/users');
+      const response = await axios.get('/api/users');
       const ownersList = response.data.filter(u => u.role === 'batch_owner');
-      setOwners(ownersList);
+      
+      const formattedOwners = ownersList.map(owner => ({
+        id: owner._id,
+        name: owner.name,
+        email: owner.email
+      }));
+      
+      setOwners(formattedOwners);
     } catch (err) {
       setError('Failed to fetch batch owners');
       console.error(err);
@@ -61,7 +69,7 @@ const ManageBatchOwners = () => {
 
   const handleDelete = async () => {
     try {
-      await axios.delete(`http://localhost:5000/api/users/${selectedOwner.id}`);
+      await axios.delete(`/api/users/${selectedOwner.id}`);
       setSuccess('Batch owner deleted successfully!');
       fetchOwners();
       setDeleteDialog(false);
@@ -85,7 +93,6 @@ const ManageBatchOwners = () => {
 
     try {
       if (editMode) {
-        // Update existing
         const updateData = { 
           name: formData.name, 
           email: formData.email
@@ -95,11 +102,10 @@ const ManageBatchOwners = () => {
           updateData.password = formData.password;
         }
         
-        await axios.put(`http://localhost:5000/api/users/${formData.id}`, updateData);
+        await axios.put(`/api/users/${formData.id}`, updateData);
         setSuccess('Batch owner updated successfully!');
       } else {
-        // Add new
-        await axios.post('http://localhost:5000/api/users', {
+        await axios.post('/api/users', {
           name: formData.name,
           email: formData.email,
           password: formData.password,
@@ -115,6 +121,7 @@ const ManageBatchOwners = () => {
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save batch owner');
+      setTimeout(() => setError(''), 5000);
       console.error(err);
     }
   };
@@ -139,8 +146,8 @@ const ManageBatchOwners = () => {
             </Button>
           </Box>
 
-          {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+          {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
           <TableContainer>
             <Table>
@@ -194,7 +201,6 @@ const ManageBatchOwners = () => {
             </Table>
           </TableContainer>
 
-          {/* Add/Edit Dialog */}
           <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
             <DialogTitle>{editMode ? 'Edit Batch Owner' : 'Add New Batch Owner'}</DialogTitle>
             <DialogContent>
@@ -234,7 +240,6 @@ const ManageBatchOwners = () => {
             </DialogActions>
           </Dialog>
 
-          {/* Delete Confirmation Dialog */}
           <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
             <DialogTitle>Confirm Delete</DialogTitle>
             <DialogContent>

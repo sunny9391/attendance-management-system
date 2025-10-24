@@ -4,21 +4,17 @@ import { AuthProvider, AuthContext } from './context/AuthContext';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 
-// Auth Components
 import Login from './components/Auth/Login';
 
-// Common Components
 import Layout from './components/Common/Layout';
 import ProtectedRoute from './components/Common/ProtectedRoute';
 
-// Admin Components
 import AdminDashboard from './components/Admin/AdminDashboard';
 import ViewAllAttendance from './components/Admin/ViewAllAttendance';
 import ManageBatches from './components/Admin/ManageBatches';
 import ManageBatchOwners from './components/Admin/ManageBatchOwners';
 import ManageStudents from './components/Admin/ManageStudents';
 
-// Batch Owner Components
 import EditAttendance from './components/BatchOwner/EditAttendance';
 import BatchOwnerDashboard from './components/BatchOwner/BatchOwnerDashboard';
 import AddAttendance from './components/BatchOwner/AddAttendance';
@@ -81,14 +77,14 @@ const theme = createTheme({
     MuiPaper: {
       styleOverrides: {
         root: {
-          borderRadius: 0  // Remove rounded borders from all Paper components
+          borderRadius: 0  
         }
       }
     },
     MuiAppBar: {
       styleOverrides: {
         root: {
-          borderRadius: 0  // Remove rounded borders from AppBar
+          borderRadius: 0  
         }
       }
     }
@@ -100,7 +96,7 @@ const AppContent = () => {
 
   return (
     <Routes>
-      {/* Public Route */}
+      
       <Route 
         path="/login" 
         element={
@@ -112,7 +108,7 @@ const AppContent = () => {
         } 
       />
       
-      {/* Admin Routes */}
+     
       <Route
         path="/admin/dashboard"
         element={
@@ -164,7 +160,6 @@ const AppContent = () => {
         }
       />
       
-      {/* Batch Owner Routes */}
       <Route
         path="/batch-owner/dashboard"
         element={
@@ -206,7 +201,7 @@ const AppContent = () => {
         }
       />
       
-      {/* Default Routes */}
+     
       <Route path="/" element={<Navigate to="/login" replace />} />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

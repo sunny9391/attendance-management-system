@@ -5,11 +5,11 @@ import {
   TableCell, TableContainer, TableHead, TableRow, IconButton, Box, Alert
 } from '@mui/material';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
-import axios from 'axios';
+import axios from '../../api/axios';
 
 const ManageBatches = () => {
   const [batches, setBatches] = useState([]);
-  const [owners, setOwners] = useState([]);
+  const [availableOwners, setAvailableOwners] = useState([]); 
   const [open, setOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
@@ -24,45 +24,43 @@ const ManageBatches = () => {
 
   useEffect(() => {
     fetchBatches();
-    fetchOwners();
   }, []);
 
   const fetchBatches = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/batches');
-      setBatches(response.data);
+      const response = await axios.get('/api/batches');
+      const formattedBatches = response.data.map(batch => ({
+        id: batch._id,
+        name: batch.name,
+        owner_id: batch.owner_id?._id || null,
+        ownerName: batch.owner_id?.name || 'No Owner',
+        ownerEmail: batch.owner_id?.email || '',
+        created_at: batch.createdAt || batch.created_at
+      }));
+      setBatches(formattedBatches);
     } catch (err) {
       setError('Failed to fetch batches');
     }
   };
 
-  const fetchOwners = async () => {
+  const fetchAvailableOwners = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/users');
-      const batchOwners = response.data.filter(u => u.role === 'batch_owner');
-      setOwners(batchOwners);
+      const response = await axios.get('/api/batches/available/owners');
+      const formattedOwners = response.data.map(owner => ({
+        id: owner._id,
+        name: owner.name,
+        email: owner.email
+      }));
+      setAvailableOwners(formattedOwners);
     } catch (err) {
-      setError('Failed to fetch batch owners');
-    }
-  };
-
-  const getOwnerName = (ownerId) => {
-    const owner = owners.find(o => o.id === ownerId);
-    return owner ? owner.name : 'No Owner';
-  };
-
-  const getStudentCount = async (batchId) => {
-    try {
-      const response = await axios.get(`http://localhost:5000/api/users/batch/${batchId}`);
-      return response.data.length;
-    } catch (err) {
-      return 0;
+      console.error('Error fetching available owners:', err);
     }
   };
 
   const handleAdd = () => {
     setEditMode(false);
     setFormData({ id: null, name: '', owner_id: '' });
+    fetchAvailableOwners(); 
     setOpen(true);
   };
 
@@ -71,9 +69,36 @@ const ManageBatches = () => {
     setFormData({
       id: batch.id,
       name: batch.name,
-      owner_id: batch.owner_id
+      owner_id: batch.owner_id || ''
     });
+    fetchAvailableOwnersForEdit(batch.owner_id);
     setOpen(true);
+  };
+
+  const fetchAvailableOwnersForEdit = async (currentOwnerId) => {
+    try {
+      const response = await axios.get('/api/batches/available/owners');
+      let owners = response.data.map(owner => ({
+        id: owner._id,
+        name: owner.name,
+        email: owner.email
+      }));
+
+      if (currentOwnerId) {
+        const allOwnersResponse = await axios.get('/api/users');
+        const currentOwner = allOwnersResponse.data.find(u => u._id === currentOwnerId);
+        if (currentOwner) {
+          owners = [
+            { id: currentOwner._id, name: currentOwner.name, email: currentOwner.email },
+            ...owners
+          ];
+        }
+      }
+
+      setAvailableOwners(owners);
+    } catch (err) {
+      console.error('Error fetching owners:', err);
+    }
   };
 
   const handleDeleteClick = (batch) => {
@@ -83,7 +108,7 @@ const ManageBatches = () => {
 
   const handleDelete = async () => {
     try {
-      await axios.delete(`http://localhost:5000/api/batches/${selectedBatch.id}`);
+      await axios.delete(`/api/batches/${selectedBatch.id}`);
       setSuccess('Batch deleted successfully!');
       fetchBatches();
       setDeleteDialog(false);
@@ -95,23 +120,23 @@ const ManageBatches = () => {
   };
 
   const handleSubmit = async () => {
-    if (!formData.name || !formData.owner_id) {
-      setError('Batch name and owner are required');
+    if (!formData.name) {
+      setError('Batch name is required');
+      setTimeout(() => setError(''), 3000);
       return;
     }
 
     try {
+      const batchData = {
+        name: formData.name,
+        owner_id: formData.owner_id || null
+      };
+
       if (editMode) {
-        await axios.put(`http://localhost:5000/api/batches/${formData.id}`, {
-          name: formData.name,
-          owner_id: formData.owner_id
-        });
+        await axios.put(`/api/batches/${formData.id}`, batchData);
         setSuccess('Batch updated successfully!');
       } else {
-        await axios.post('http://localhost:5000/api/batches', {
-          name: formData.name,
-          owner_id: formData.owner_id
-        });
+        await axios.post('/api/batches', batchData);
         setSuccess('Batch created successfully!');
       }
       
@@ -121,6 +146,7 @@ const ManageBatches = () => {
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save batch');
+      setTimeout(() => setError(''), 5000);
     }
   };
 
@@ -132,7 +158,7 @@ const ManageBatches = () => {
             <Box>
               <Typography variant="h5" color="primary">Manage Batches</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                Create and manage batches with assigned batch owners
+                Create and manage batches (one batch per owner)
               </Typography>
             </Box>
             <Button
@@ -144,14 +170,8 @@ const ManageBatches = () => {
             </Button>
           </Box>
 
-          {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-          {owners.length === 0 && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              No batch owners found. Please create batch owners first before creating batches.
-            </Alert>
-          )}
+          {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+          {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
           <TableContainer>
             <Table>
@@ -176,8 +196,13 @@ const ManageBatches = () => {
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2">
-                          {getOwnerName(batch.owner_id)}
+                          {batch.ownerName}
                         </Typography>
+                        {batch.ownerEmail && (
+                          <Typography variant="caption" color="text.secondary">
+                            {batch.ownerEmail}
+                          </Typography>
+                        )}
                       </TableCell>
                       <TableCell>
                         {new Date(batch.created_at).toLocaleDateString('en-IN')}
@@ -215,14 +240,13 @@ const ManageBatches = () => {
             </Table>
           </TableContainer>
 
-          {/* Add/Edit Dialog */}
           <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
             <DialogTitle>{editMode ? 'Edit Batch' : 'Create New Batch'}</DialogTitle>
             <DialogContent>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                 {editMode 
                   ? 'Update batch information and assign a new owner if needed' 
-                  : 'Create a new batch and assign a batch owner who will manage attendance'}
+                  : 'Create a new batch. Each batch owner can manage only one batch.'}
               </Typography>
               <TextField
                 fullWidth
@@ -241,11 +265,12 @@ const ManageBatches = () => {
                 onChange={(e) => setFormData({ ...formData, owner_id: e.target.value })}
                 margin="normal"
                 SelectProps={{ native: true }}
-                required
-                helperText="Select a teacher who will manage this batch"
+                helperText={availableOwners.length === 0 
+                  ? "All batch owners are already assigned to batches" 
+                  : "Select a teacher who will manage this batch"}
               >
-                <option value="">Select Batch Owner</option>
-                {owners.map((owner) => (
+                <option value="">No Owner (Assign Later)</option>
+                {availableOwners.map((owner) => (
                   <option key={owner.id} value={owner.id}>
                     {owner.name} ({owner.email})
                   </option>
@@ -257,14 +282,13 @@ const ManageBatches = () => {
               <Button 
                 variant="contained" 
                 onClick={handleSubmit}
-                disabled={!formData.name || !formData.owner_id}
+                disabled={!formData.name}
               >
                 {editMode ? 'Update Batch' : 'Create Batch'}
               </Button>
             </DialogActions>
           </Dialog>
 
-          {/* Delete Confirmation Dialog */}
           <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
             <DialogTitle>Confirm Delete</DialogTitle>
             <DialogContent>

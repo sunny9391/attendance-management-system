@@ -10,7 +10,7 @@ import {
   CheckCircle as CheckIcon,
   Cancel as CancelIcon
 } from '@mui/icons-material';
-import axios from 'axios';
+import axios from '../../api/axios';
 
 const StatCard = ({ title, value, icon, bgcolor }) => (
   <Card 
@@ -78,7 +78,7 @@ const AdminDashboard = () => {
 
   const fetchStats = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/attendance/stats/dashboard');
+      const response = await axios.get('/api/attendance/stats/dashboard');
       setStats(response.data);
       setLoading(false);
     } catch (err) {
@@ -89,7 +89,7 @@ const AdminDashboard = () => {
 
   const fetchRecentAttendance = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/attendance');
+      const response = await axios.get('/api/attendance');
       setRecentAttendance(response.data.slice(0, 10));
     } catch (err) {
       console.error('Failed to fetch recent attendance', err);
@@ -102,7 +102,6 @@ const AdminDashboard = () => {
 
   return (
     <Box sx={{ width: '100%', maxWidth: '100%', p: 3 }}>
-      {/* Header */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#1976d2' }}>
           Welcome Back, Admin! 👋
@@ -114,7 +113,6 @@ const AdminDashboard = () => {
 
       {loading && <LinearProgress sx={{ mb: 3 }} />}
 
-      {/* Row 1: 4 Stat Cards - Full Width Grid */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>
           <StatCard
@@ -150,7 +148,6 @@ const AdminDashboard = () => {
         </Grid>
       </Grid>
 
-      {/* Row 2: Today's Attendance Summary - Full Width */}
       <Paper 
         elevation={3} 
         sx={{ 
@@ -238,7 +235,7 @@ const AdminDashboard = () => {
         </Grid>
       </Paper>
 
-     {/* Recent Attendance Activity - Full Width */}
+     
 <Grid item xs={12}>
   <Paper elevation={3} sx={{ p: 3, borderRadius: '8px' }}>
     <Typography variant="h6" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>
@@ -251,7 +248,7 @@ const AdminDashboard = () => {
             key={index}
             sx={{
               display: 'flex',
-              flexDirection: { xs: 'column', sm: 'row' }, // Stack on mobile, row on tablet+
+              flexDirection: { xs: 'column', sm: 'row' }, 
               justifyContent: 'space-between',
               alignItems: { xs: 'flex-start', sm: 'center' },
               p: 2,
@@ -259,10 +256,10 @@ const AdminDashboard = () => {
               mb: 1,
               backgroundColor: index % 2 === 0 ? '#f5f5f5' : 'white',
               border: '1px solid #e0e0e0',
-              gap: { xs: 1, sm: 0 }, // Add gap on mobile
+              gap: { xs: 1, sm: 0 }, 
               '&:hover': { 
                 backgroundColor: '#e3f2fd',
-                transform: { sm: 'translateX(4px)' }, // Only translate on larger screens
+                transform: { sm: 'translateX(4px)' }, 
                 transition: 'all 0.2s ease',
                 borderColor: '#2196f3'
               }
@@ -273,7 +270,7 @@ const AdminDashboard = () => {
               alignItems: 'center', 
               gap: 2, 
               flex: 1,
-              flexWrap: 'wrap', // Allow wrapping on small screens
+              flexWrap: 'wrap', 
               width: { xs: '100%', sm: 'auto' }
             }}>
               <Box

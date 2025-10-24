@@ -1,16 +1,18 @@
-import mysql2 from 'mysql2/promise';
-import {config} from 'dotenv';
+import mongoose from 'mongoose';
 
-config();
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGODB_URL, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    
+    console.log(` MongoDB Connected: ${conn.connection.host}`);
+    console.log(`Database: ${conn.connection.name}`);
+  } catch (error) {
+    console.error(' MongoDB Connection Error:', error.message);
+    process.exit(1);
+  }
+};
 
-const db = mysql2.createPool({
-    host: process.env.DB_HOST || "localhost",
-    user: process.env.DB_USER || "root",
-    password: process.env.DB_PASSWORD || "root",
-    database: process.env.DB_NAME || "attendance_app",
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0
-});
-
-export default db;
+export default connectDB;

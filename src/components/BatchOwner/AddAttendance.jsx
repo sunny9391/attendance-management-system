@@ -1,229 +1,251 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Container, Paper, Typography, FormControl, InputLabel, Select, MenuItem,
-  Button, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Radio, RadioGroup, FormControlLabel, Box, Alert, TextField, CircularProgress
+  Box,
+  Typography,
+  Paper,
+  Button,
+  FormControl,
+  RadioGroup,
+  FormControlLabel,
+  Radio,
+  Snackbar,
+  Alert,
+  CircularProgress
 } from '@mui/material';
-import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
-import { AuthContext } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
+import axios from '../../api/axios';
 
 const AddAttendance = () => {
-  const { user } = useContext(AuthContext);
-  const navigate = useNavigate();
+  const { user } = useAuth();
   const [batch, setBatch] = useState(null);
   const [students, setStudents] = useState([]);
   const [attendance, setAttendance] = useState({});
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [success, setSuccess] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [fetchingData, setFetchingData] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
   useEffect(() => {
-    fetchBatch();
-  }, []);
+    fetchBatchAndStudents();
+  }, [user]);
 
-  const fetchBatch = async () => {
+  const fetchBatchAndStudents = async () => {
     try {
-      const response = await axios.get(`http://localhost:5000/api/batches/owner/${user.id}`);
-      const batchData = Array.isArray(response.data) ? response.data[0] : response.data;
-      setBatch(batchData);
-      fetchStudents(batchData.id);
-    } catch (err) {
-      setError('Failed to fetch batch information');
-      setFetchingData(false);
-    }
-  };
-
-  const fetchStudents = async (batchId) => {
-    try {
-      const response = await axios.get(`http://localhost:5000/api/users/batch/${batchId}`);
-      setStudents(response.data);
+      setLoading(true);
       
-      // Initialize attendance with all students marked as present
-      const initialAttendance = {};
-      response.data.forEach(student => {
-        initialAttendance[student.name] = 'present';
-      });
-      setAttendance(initialAttendance);
-      setFetchingData(false);
-    } catch (err) {
-      setError('Failed to fetch students');
-      setFetchingData(false);
-    }
-  };
-
-  const handleAttendanceChange = (studentName, status) => {
-    setAttendance(prev => ({
-      ...prev,
-      [studentName]: status
-    }));
-  };
-
-  const handleSubmit = async () => {
-    setLoading(true);
-    setError('');
-    setSuccess('');
-    
-    try {
-      // Check if attendance already exists for this date
-      const checkResponse = await axios.get(
-        `http://localhost:5000/api/attendance/check/${batch.id}/${date}`
-      );
+      const batchesResponse = await axios.get('/api/batches');
+      const myBatch = batchesResponse.data.find(b => b.owner_id?._id === user.id);
       
-      if (checkResponse.data.exists) {
-        setError('Attendance for this date has already been recorded! Please select a different date or delete existing records first.');
+      if (!myBatch) {
+        showSnackbar('No batch assigned to you', 'error');
         setLoading(false);
         return;
       }
 
-      // Prepare attendance data
-      const attendanceData = students.map(student => ({
-        batchid: batch.id,
-        date: date,
-        studentname: student.name,
-        status: attendance[student.name],
-        marked_by: user.id
+      setBatch({
+        id: myBatch._id,
+        name: myBatch.name
+      });
+
+      const usersResponse = await axios.get('/api/users');
+      const batchStudents = usersResponse.data.filter(
+        u => u.role === 'student' && u.batch_id?._id === myBatch._id
+      );
+
+      const formattedStudents = batchStudents.map(s => ({
+        id: s._id,
+        name: s.name
       }));
 
-      // Submit attendance
-      await axios.post('http://localhost:5000/api/attendance/bulk', attendanceData);
+      setStudents(formattedStudents);
       
-      setSuccess('Attendance marked successfully! Redirecting to dashboard...');
-      setTimeout(() => {
-        navigate('/batch-owner/dashboard');
-      }, 2000);
-    } catch (err) {
-      setError(err.response?.data?.message || 'Failed to submit attendance');
+      const initialAttendance = {};
+      formattedStudents.forEach(student => {
+        initialAttendance[student.id] = 'present';
+      });
+      setAttendance(initialAttendance);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      showSnackbar('Error loading data', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  if (fetchingData) {
-    return (
-      <Container maxWidth="lg">
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-          <CircularProgress />
-        </Box>
-      </Container>
-    );
-  }
+  const handleAttendanceChange = (studentId, status) => {
+    setAttendance(prev => ({
+      ...prev,
+      [studentId]: status
+    }));
+  };
 
-  if (!batch) {
+  const handleSubmit = async () => {
+    if (!batch) {
+      showSnackbar('No batch found', 'error');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const today = new Date().toISOString().split('T')[0];
+      
+      const attendanceRecords = students.map(student => ({
+        batchid: batch.id,
+        date: today,
+        studentname: student.name,
+        status: attendance[student.id] || 'present'
+      }));
+
+      await axios.post('/api/attendance', {
+        attendance: attendanceRecords,
+        marked_by: user.id
+      });
+
+      showSnackbar('Attendance submitted successfully!', 'success');
+      const resetAttendance = {};
+      students.forEach(student => {
+        resetAttendance[student.id] = 'present';
+      });
+      setAttendance(resetAttendance);
+    } catch (error) {
+      console.error('Error submitting attendance:', error);
+      showSnackbar(
+        error.response?.data?.message || 'Error submitting attendance',
+        'error'
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const showSnackbar = (message, severity) => {
+    setSnackbar({ open: true, message, severity });
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
+  };
+
+  if (loading) {
     return (
-      <Container maxWidth="lg">
-        <Box sx={{ mt: 4 }}>
-          <Alert severity="warning">
-            No batch assigned to you. Please contact the administrator.
-          </Alert>
-        </Box>
-      </Container>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+        <CircularProgress />
+      </Box>
     );
   }
 
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ mt: 4, mb: 4 }}>
-        <Paper elevation={3} sx={{ p: 3 }}>
-          <Typography variant="h5" gutterBottom color="primary" sx={{ fontWeight: 'bold' }}>
-            Mark Attendance
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h4" gutterBottom sx={{ fontWeight: 600, mb: 3 }}>
+        ✅ Mark Attendance
+      </Typography>
+
+      {batch && (
+        <Paper elevation={3} sx={{ p: 3, borderRadius: '12px' }}>
+          <Typography variant="h6" sx={{ mb: 1, color: '#666' }}>
+            Batch: <strong>{batch.name}</strong>
           </Typography>
-
-          {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-          <Box sx={{ mb: 3, mt: 3 }}>
-            <Typography variant="h6" color="text.secondary" gutterBottom>
-              Batch: {batch.name}
-            </Typography>
-            <TextField
-              type="date"
-              label="Date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              InputLabelProps={{ shrink: true }}
-              sx={{ mt: 2, minWidth: 250 }}
-              fullWidth
-            />
-          </Box>
+          <Typography variant="h6" sx={{ mb: 3, color: '#666' }}>
+            Today's Date: {new Date().toLocaleDateString('en-IN', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            })}
+          </Typography>
 
           {students.length > 0 ? (
             <>
-              <TableContainer sx={{ mt: 3 }}>
-                <Table>
-                  <TableHead>
-                    <TableRow sx={{ backgroundColor: '#f5f5f5' }}>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Student Name</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Email</TableCell>
-                      <TableCell align="center" sx={{ fontWeight: 'bold' }}>Attendance Status</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {students.map((student) => (
-                      <TableRow key={student.id} hover>
-                        <TableCell>{student.name}</TableCell>
-                        <TableCell>{student.email}</TableCell>
-                        <TableCell align="center">
-                          <RadioGroup
-                            row
-                            value={attendance[student.name]}
-                            onChange={(e) => handleAttendanceChange(student.name, e.target.value)}
-                            sx={{ justifyContent: 'center' }}
-                          >
-                            <FormControlLabel 
-                              value="present" 
-                              control={<Radio color="success" />} 
-                              label="Present" 
-                            />
-                            <FormControlLabel 
-                              value="absent" 
-                              control={<Radio color="error" />} 
-                              label="Absent" 
-                            />
-                            <FormControlLabel 
-                              value="late" 
-                              control={<Radio color="warning" />} 
-                              label="Late" 
-                            />
-                          </RadioGroup>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+              {students.map((student) => (
+                <Box
+                  key={student.id}
+                  sx={{
+                    p: 2,
+                    mb: 2,
+                    borderRadius: '8px',
+                    backgroundColor: '#f9f9f9',
+                    border: '1px solid #e0e0e0',
+                    '&:hover': {
+                      backgroundColor: '#f0f0f0'
+                    }
+                  }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                    <Typography variant="body1" sx={{ fontWeight: 500, minWidth: 200 }}>
+                      {student.name}
+                    </Typography>
+                    <FormControl component="fieldset">
+                      <RadioGroup
+                        row
+                        value={attendance[student.id] || 'present'}
+                        onChange={(e) => handleAttendanceChange(student.id, e.target.value)}
+                      >
+                        <FormControlLabel
+                          value="present"
+                          control={<Radio color="success" />}
+                          label="Present"
+                        />
+                        <FormControlLabel
+                          value="absent"
+                          control={<Radio color="error" />}
+                          label="Absent"
+                        />
+                        <FormControlLabel
+                          value="late"
+                          control={<Radio color="warning" />}
+                          label="Late"
+                        />
+                      </RadioGroup>
+                    </FormControl>
+                  </Box>
+                </Box>
+              ))}
 
-              <Box sx={{ mt: 3, display: 'flex', gap: 2 }}>
+              <Box sx={{ mt: 3, display: 'flex', justifyContent: 'flex-end' }}>
                 <Button
                   variant="contained"
-                  color="primary"
+                  size="large"
                   onClick={handleSubmit}
-                  fullWidth
-                  disabled={loading}
-                  size="large"
+                  disabled={submitting}
+                  sx={{
+                    px: 4,
+                    py: 1.5,
+                    fontSize: '1rem',
+                    fontWeight: 600,
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #764ba2 0%, #667eea 100%)',
+                    }
+                  }}
                 >
-                  {loading ? <CircularProgress size={24} color="inherit" /> : 'Submit Attendance'}
-                </Button>
-                <Button
-                  variant="outlined"
-                  onClick={() => navigate('/batch-owner/dashboard')}
-                  disabled={loading}
-                  size="large"
-                >
-                  Cancel
+                  {submitting ? <CircularProgress size={24} color="inherit" /> : 'Submit Attendance'}
                 </Button>
               </Box>
             </>
           ) : (
-            <Alert severity="info" sx={{ mt: 2 }}>
-              No students enrolled in this batch yet. Please contact the administrator to add students.
-            </Alert>
+            <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
+              No students found in your batch
+            </Typography>
           )}
         </Paper>
-      </Box>
-    </Container>
+      )}
+
+      {!batch && !loading && (
+        <Alert severity="warning">
+          No batch assigned to you. Please contact the administrator.
+        </Alert>
+      )}
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
   );
 };
 

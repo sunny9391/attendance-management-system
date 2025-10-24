@@ -5,7 +5,8 @@ import {
   TableCell, TableContainer, TableHead, TableRow, IconButton, Box, Chip, Alert
 } from '@mui/material';
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon } from '@mui/icons-material';
-import axios from 'axios';
+import axios from '../../api/axios';
+
 
 const ManageStudents = () => {
   const [students, setStudents] = useState([]);
@@ -30,9 +31,18 @@ const ManageStudents = () => {
 
   const fetchStudents = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/users');
+      const response = await axios.get('/api/users');
       const studentsList = response.data.filter(u => u.role === 'student');
-      setStudents(studentsList);
+      
+      const formattedStudents = studentsList.map(student => ({
+        id: student._id,
+        name: student.name,
+        email: student.email,
+        batch_id: student.batch_id?._id || null,
+        batchName: student.batch_id?.name || null
+      }));
+      
+      setStudents(formattedStudents);
     } catch (err) {
       setError('Failed to fetch students');
     }
@@ -40,14 +50,21 @@ const ManageStudents = () => {
 
   const fetchBatches = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/batches');
-      setBatches(response.data);
+      const response = await axios.get('/api/batches');
+      
+      const formattedBatches = response.data.map(batch => ({
+        id: batch._id,
+        name: batch.name
+      }));
+      
+      setBatches(formattedBatches);
     } catch (err) {
       setError('Failed to fetch batches');
     }
   };
 
   const getBatchName = (batchId) => {
+    if (!batchId) return 'No Batch';
     const batch = batches.find(b => b.id === batchId);
     return batch ? batch.name : 'No Batch';
   };
@@ -76,7 +93,7 @@ const ManageStudents = () => {
 
   const handleDelete = async () => {
     try {
-      await axios.delete(`http://localhost:5000/api/users/${selectedStudent.id}`);
+      await axios.delete(`/api/users/${selectedStudent.id}`);
       setSuccess('Student deleted successfully!');
       fetchStudents();
       setDeleteDialog(false);
@@ -88,7 +105,6 @@ const ManageStudents = () => {
   };
 
   const handleSubmit = async () => {
-    // Validate required fields
     if (!formData.name || !formData.email) {
       setError('Name and email are required');
       return;
@@ -96,21 +112,19 @@ const ManageStudents = () => {
 
     try {
       if (editMode) {
-        // Update existing student
         const updateData = { 
           name: formData.name, 
           email: formData.email, 
           batch_id: formData.batch_id || null 
         };
         
-        await axios.put(`http://localhost:5000/api/users/${formData.id}`, updateData);
+        await axios.put(`/api/users/${formData.id}`, updateData);
         setSuccess('Student updated successfully!');
       } else {
-        // Add new student - auto-generate a simple password (not used for login)
-        await axios.post('http://localhost:5000/api/users', {
+        await axios.post('/api/users', {
           name: formData.name,
           email: formData.email,
-          password: 'student123', // Default password (not used since students don't login)
+          password: 'student123', 
           role: 'student',
           batch_id: formData.batch_id || null
         });
@@ -123,6 +137,7 @@ const ManageStudents = () => {
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to save student');
+      setTimeout(() => setError(''), 5000);
     }
   };
 
@@ -146,8 +161,8 @@ const ManageStudents = () => {
             </Button>
           </Box>
 
-          {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+          {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
           <TableContainer>
             <Table>
@@ -172,8 +187,8 @@ const ManageStudents = () => {
                       </TableCell>
                       <TableCell>{student.email}</TableCell>
                       <TableCell>
-                        {student.batch_id ? (
-                          <Chip label={getBatchName(student.batch_id)} size="small" color="primary" />
+                        {student.batchName ? (
+                          <Chip label={student.batchName} size="small" color="primary" />
                         ) : (
                           <Chip label="No Batch" size="small" variant="outlined" />
                         )}
@@ -211,7 +226,6 @@ const ManageStudents = () => {
             </Table>
           </TableContainer>
 
-          {/* Add/Edit Dialog */}
           <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
             <DialogTitle>{editMode ? 'Edit Student' : 'Add New Student'}</DialogTitle>
             <DialogContent>
@@ -269,7 +283,6 @@ const ManageStudents = () => {
             </DialogActions>
           </Dialog>
 
-          {/* Delete Confirmation Dialog */}
           <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)}>
             <DialogTitle>Confirm Delete</DialogTitle>
             <DialogContent>

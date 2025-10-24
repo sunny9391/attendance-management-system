@@ -1,135 +1,127 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Container, Paper, Typography, Button, Table, TableBody, TableCell,
   TableContainer, TableHead, TableRow, Radio, RadioGroup, FormControlLabel,
-  Box, Alert, CircularProgress, FormControl, InputLabel, Select, MenuItem,
-  Chip, Divider
+  Box, Alert, CircularProgress, TextField, Chip, Divider
 } from '@mui/material';
 import { Save as SaveIcon, Refresh as RefreshIcon } from '@mui/icons-material';
-import axios from 'axios';
-import { AuthContext } from '../../context/AuthContext';
+import axios from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
 
 const EditAttendance = () => {
-  const { user } = useContext(AuthContext);
+  const { user } = useAuth();
   const [batch, setBatch] = useState(null);
-  const [availableDates, setAvailableDates] = useState([]);
   const [selectedDate, setSelectedDate] = useState('');
   const [attendanceRecords, setAttendanceRecords] = useState([]);
+  const [allAttendance, setAllAttendance] = useState([]);
   const [attendance, setAttendance] = useState({});
   const [originalAttendance, setOriginalAttendance] = useState({});
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [fetchingData, setFetchingData] = useState(true);
+  const [fetchingBatch, setFetchingBatch] = useState(true);
+
+  const formatDateLocal = (dateValue) => {
+    const date = new Date(dateValue);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
   useEffect(() => {
-    fetchBatchAndDates();
+    fetchBatchAndAllAttendance();
   }, []);
 
   useEffect(() => {
-    if (selectedDate && batch) {
-      fetchAttendanceForDate(selectedDate);
+    if (selectedDate && allAttendance.length > 0) {
+      filterAttendanceByDate(selectedDate);
     }
-  }, [selectedDate]);
+  }, [selectedDate, allAttendance]);
 
-  const fetchBatchAndDates = async () => {
+  const fetchBatchAndAllAttendance = async () => {
     try {
-      console.log('Fetching batch for owner:', user.id);
+      setFetchingBatch(true);
       
-      // Get batch info
-      const batchResponse = await axios.get(`http://localhost:5000/api/batches/owner/${user.id}`);
-      const batchData = Array.isArray(batchResponse.data) ? batchResponse.data[0] : batchResponse.data;
+      const batchesResponse = await axios.get('/api/batches');
+      const myBatch = batchesResponse.data.find(b => b.owner_id?._id === user.id);
       
-      console.log('Batch data:', batchData);
-      
-      if (!batchData) {
-        setError('No batch assigned to you. Please contact the administrator.');
-        setFetchingData(false);
+      if (!myBatch) {
+        setError('No batch assigned to you');
+        setFetchingBatch(false);
         return;
       }
-      
+
+      const batchData = {
+        id: myBatch._id,
+        name: myBatch.name
+      };
+
       setBatch(batchData);
 
-      // Get all dates where attendance was marked
-      const datesResponse = await axios.get(`http://localhost:5000/api/attendance/dates/${batchData.id}`);
-      
-      console.log('Dates response:', datesResponse.data);
-      
-      if (datesResponse.data.length === 0) {
-        setError('No attendance records found for your batch. Please mark attendance first.');
-        setFetchingData(false);
+      const attendanceResponse = await axios.get(
+        `/api/attendance/batch/${myBatch._id}`
+      );
+
+      if (attendanceResponse.data.length === 0) {
+        setError('No attendance records found for your batch.');
+        setFetchingBatch(false);
         return;
       }
 
-      setAvailableDates(datesResponse.data);
-      
-      // Format the date properly - MySQL returns it as a Date object
-      const firstDate = datesResponse.data[0].date;
-      const formattedDate = formatDateForAPI(firstDate);
-      
-      console.log('First date:', firstDate, 'Formatted:', formattedDate);
-      
-      setSelectedDate(formattedDate);
-      setFetchingData(false);
+      const formattedAttendance = attendanceResponse.data.map(record => ({
+        id: record._id,
+        studentname: record.studentname,
+        status: record.status,
+        date: record.date
+      }));
+
+      setAllAttendance(formattedAttendance);
+
+      const today = formatDateLocal(new Date());
+      setSelectedDate(today);
     } catch (err) {
-      console.error('Error in fetchBatchAndDates:', err);
-      setError('Failed to fetch batch information');
-      setFetchingData(false);
+      console.error('Error fetching batch:', err);
+      setError('Failed to load batch information');
+    } finally {
+      setFetchingBatch(false);
     }
   };
 
-  // Format date to YYYY-MM-DD for API calls
-  const formatDateForAPI = (dateValue) => {
-    const date = new Date(dateValue);
-    // Add timezone offset to prevent date shift
-    const offsetDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
-    return offsetDate.toISOString().split('T')[0];
-  };
-
-  const fetchAttendanceForDate = async (date) => {
+  const filterAttendanceByDate = (dateString) => {
     setLoading(true);
     setSuccess('');
     setError('');
-    
-    console.log('Fetching attendance for batch:', batch.id, 'date:', date);
-    
-    try {
-      const response = await axios.get(
-        `http://localhost:5000/api/attendance/batch/${batch.id}/date/${date}`
-      );
-      
-      console.log('Attendance response:', response.data);
-      
-      if (response.data.length === 0) {
-        setError('No attendance records found for this date.');
-        setAttendanceRecords([]);
-        setLoading(false);
-        return;
-      }
 
-      setAttendanceRecords(response.data);
-      
-      // Initialize attendance state with existing records
-      const initialAttendance = {};
-      const original = {};
-      response.data.forEach(record => {
-        initialAttendance[record.id] = record.status;
-        original[record.id] = record.status;
-      });
-      setAttendance(initialAttendance);
-      setOriginalAttendance(original);
+    const filtered = allAttendance.filter(record => {
+      const recordDateStr = formatDateLocal(record.date);
+      return recordDateStr === dateString;
+    });
+
+    if (filtered.length === 0) {
+      setError('No attendance records found for this date.');
+      setAttendanceRecords([]);
+      setAttendance({});
+      setOriginalAttendance({});
       setLoading(false);
-    } catch (err) {
-      console.error('Error fetching attendance:', err);
-      setError('Failed to fetch attendance records');
-      setLoading(false);
+      return;
     }
+
+    setAttendanceRecords(filtered);
+    
+    const initialAttendance = {};
+    const original = {};
+    filtered.forEach(record => {
+      initialAttendance[record.id] = record.status;
+      original[record.id] = record.status;
+    });
+    setAttendance(initialAttendance);
+    setOriginalAttendance(original);
+    setLoading(false);
   };
 
   const handleDateChange = (event) => {
-    const selectedValue = event.target.value;
-    console.log('Date changed to:', selectedValue);
-    setSelectedDate(selectedValue);
+    setSelectedDate(event.target.value);
   };
 
   const handleAttendanceChange = (recordId, status) => {
@@ -148,6 +140,7 @@ const EditAttendance = () => {
   const handleSave = async () => {
     if (!hasChanges()) {
       setError('No changes to save');
+      setTimeout(() => setError(''), 3000);
       return;
     }
 
@@ -156,26 +149,37 @@ const EditAttendance = () => {
     setSuccess('');
     
     try {
-      // Update only changed records
       const updatePromises = Object.keys(attendance)
         .filter(id => attendance[id] !== originalAttendance[id])
         .map(id => 
-          axios.put(`http://localhost:5000/api/attendance/update/${id}`, {
+          axios.put(`/api/attendance/${id}`, {
             status: attendance[id]
           })
         );
 
       await Promise.all(updatePromises);
       
-      setSuccess(`Attendance updated successfully!`);
-      
-      // Update original attendance to reflect saved changes
+      setSuccess('Attendance updated successfully!');
       setOriginalAttendance({ ...attendance });
       
-      // Clear success message after 3 seconds
+      const attendanceResponse = await axios.get(
+        `/api/attendance/batch/${batch.id}`
+      );
+      
+      const formattedAttendance = attendanceResponse.data.map(record => ({
+        id: record._id,
+        studentname: record.studentname,
+        status: record.status,
+        date: record.date
+      }));
+
+      setAllAttendance(formattedAttendance);
+      
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
+      console.error('Update error:', err);
       setError(err.response?.data?.message || 'Failed to update attendance');
+      setTimeout(() => setError(''), 5000);
     } finally {
       setLoading(false);
     }
@@ -204,18 +208,16 @@ const EditAttendance = () => {
     return counts;
   };
 
-  const formatDisplayDate = (dateValue) => {
-    const date = new Date(dateValue);
-    const offsetDate = new Date(date.getTime() - (date.getTimezoneOffset() * 60000));
-    return offsetDate.toLocaleDateString('en-IN', { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+  const getAvailableDates = () => {
+    const dates = new Set();
+    allAttendance.forEach(record => {
+      const dateStr = formatDateLocal(record.date);
+      dates.add(dateStr);
     });
+    return Array.from(dates).sort().reverse();
   };
 
-  if (fetchingData) {
+  if (fetchingBatch) {
     return (
       <Container maxWidth="lg">
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
@@ -225,17 +227,20 @@ const EditAttendance = () => {
     );
   }
 
-  if (!batch || availableDates.length === 0) {
+  if (!batch) {
     return (
       <Container maxWidth="lg">
         <Box sx={{ mt: 4 }}>
-          <Alert severity="warning">{error || 'No attendance records available to edit.'}</Alert>
+          <Alert severity="warning">
+            {error || 'No batch assigned to you. Please contact the administrator.'}
+          </Alert>
         </Box>
       </Container>
     );
   }
 
   const statusCounts = getStatusCounts();
+  const availableDates = getAvailableDates();
 
   return (
     <Container maxWidth="lg">
@@ -245,67 +250,46 @@ const EditAttendance = () => {
             Edit Attendance Records
           </Typography>
 
-          <Typography variant="body1" color="text.secondary" gutterBottom sx={{ mb: 3 }}>
+          <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
             Batch: <strong>{batch.name}</strong>
           </Typography>
 
           <Divider sx={{ mb: 3 }} />
 
-          {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {success && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccess('')}>{success}</Alert>}
+          {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError('')}>{error}</Alert>}
 
-          {/* Date Selection */}
+          {availableDates.length > 0 && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Available dates with attendance: {availableDates.map(d => new Date(d).toLocaleDateString('en-IN')).join(', ')}
+            </Alert>
+          )}
+
           <Box sx={{ mb: 3 }}>
-            <FormControl fullWidth>
-              <InputLabel>Select Date to Edit</InputLabel>
-              <Select
-                value={selectedDate}
-                onChange={handleDateChange}
-                label="Select Date to Edit"
-              >
-                {availableDates.map((dateObj) => {
-                  const formattedValue = formatDateForAPI(dateObj.date);
-                  return (
-                    <MenuItem key={formattedValue} value={formattedValue}>
-                      {formatDisplayDate(dateObj.date)}
-                    </MenuItem>
-                  );
-                })}
-              </Select>
-            </FormControl>
+            <TextField
+              type="date"
+              label="Select Date to Edit"
+              value={selectedDate}
+              onChange={handleDateChange}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+              inputProps={{
+                max: formatDateLocal(new Date())
+              }}
+              helperText={availableDates.length > 0 ? `Available dates: ${availableDates.length}` : 'No attendance records yet'}
+            />
           </Box>
 
-          {/* Statistics */}
           {attendanceRecords.length > 0 && (
             <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-              <Chip 
-                label={`Total: ${attendanceRecords.length}`} 
-                color="primary" 
-                variant="outlined"
-              />
-              <Chip 
-                label={`Present: ${statusCounts.present}`} 
-                color="success" 
-              />
-              <Chip 
-                label={`Absent: ${statusCounts.absent}`} 
-                color="error" 
-              />
-              <Chip 
-                label={`Late: ${statusCounts.late}`} 
-                color="warning" 
-              />
-              {hasChanges() && (
-                <Chip 
-                  label="Unsaved Changes" 
-                  color="info"
-                  sx={{ fontWeight: 'bold' }}
-                />
-              )}
+              <Chip label={`Total: ${attendanceRecords.length}`} color="primary" variant="outlined" />
+              <Chip label={`Present: ${statusCounts.present}`} color="success" />
+              <Chip label={`Absent: ${statusCounts.absent}`} color="error" />
+              <Chip label={`Late: ${statusCounts.late}`} color="warning" />
+              {hasChanges() && <Chip label="Unsaved Changes" color="info" sx={{ fontWeight: 'bold' }} />}
             </Box>
           )}
 
-          {/* Attendance Table */}
           {loading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
               <CircularProgress />
@@ -341,7 +325,7 @@ const EditAttendance = () => {
                         </TableCell>
                         <TableCell align="center">
                           <Chip
-                            label={originalAttendance[record.id].toUpperCase()}
+                            label={originalAttendance[record.id]?.toUpperCase()}
                             color={getStatusColor(originalAttendance[record.id])}
                             size="small"
                           />
@@ -353,21 +337,9 @@ const EditAttendance = () => {
                             onChange={(e) => handleAttendanceChange(record.id, e.target.value)}
                             sx={{ justifyContent: 'center' }}
                           >
-                            <FormControlLabel 
-                              value="present" 
-                              control={<Radio color="success" />} 
-                              label="Present" 
-                            />
-                            <FormControlLabel 
-                              value="absent" 
-                              control={<Radio color="error" />} 
-                              label="Absent" 
-                            />
-                            <FormControlLabel 
-                              value="late" 
-                              control={<Radio color="warning" />} 
-                              label="Late" 
-                            />
+                            <FormControlLabel value="present" control={<Radio color="success" />} label="Present" />
+                            <FormControlLabel value="absent" control={<Radio color="error" />} label="Absent" />
+                            <FormControlLabel value="late" control={<Radio color="warning" />} label="Late" />
                           </RadioGroup>
                         </TableCell>
                       </TableRow>
@@ -376,7 +348,6 @@ const EditAttendance = () => {
                 </Table>
               </TableContainer>
 
-              {/* Action Buttons */}
               <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
                 <Button
                   variant="outlined"
@@ -399,7 +370,11 @@ const EditAttendance = () => {
               </Box>
             </>
           ) : (
-            <Alert severity="info">Select a date to view and edit attendance</Alert>
+            <Alert severity="info">
+              {availableDates.length === 0 
+                ? 'No attendance records found. Please mark attendance first.'
+                : 'No attendance records found for this date. Try selecting a different date.'}
+            </Alert>
           )}
         </Paper>
       </Box>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Container, Paper, Typography, Box, Chip } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
-import axios from 'axios';
+import axios from '../../api/axios';
 
 const ViewAllAttendance = () => {
   const [rows, setRows] = useState([]);
@@ -13,14 +13,14 @@ const ViewAllAttendance = () => {
 
   const fetchAllAttendance = async () => {
     try {
-      const response = await axios.get('http://localhost:5000/api/attendance');
+      const response = await axios.get('/api/attendance');
       const formattedData = response.data.map((record) => ({
-        id: record.id,
+        id: record._id,  
         studentName: record.studentname,
         batchName: record.batch_name || 'N/A',
         date: new Date(record.date).toLocaleDateString(),
         status: record.status,
-        markedBy: record.marked_by_name || 'N/A'
+        markedBy: record.marked_by?.name || 'N/A'  
       }));
       setRows(formattedData);
     } catch (err) {

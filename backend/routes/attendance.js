@@ -1,214 +1,163 @@
 import express from 'express';
-import pool from '../db.js';
+import Attendance from '../models/Attendance.js';
+import Batch from '../models/Batch.js';
+import User from '../models/User.js';
 
 const router = express.Router();
 
-// Get all attendance records (Admin only)
 router.get('/', async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      `SELECT a.*, b.name as batch_name, u.name as marked_by_name 
-       FROM attendance a 
-       LEFT JOIN batches b ON a.batchid = b.id
-       LEFT JOIN users u ON a.marked_by = u.id
-       ORDER BY a.date DESC`
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    const attendance = await Attendance.find()
+      .populate('batchid', 'name')
+      .populate('marked_by', 'name')
+      .sort({ date: -1, createdAt: -1 });
+    
+    const formattedAttendance = attendance.map(record => ({
+      ...record.toObject(),
+      batch_name: record.batchid?.name || 'Unknown Batch'
+    }));
+    
+    res.json(formattedAttendance);
+  } catch (error) {
+    console.error('Get attendance error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Get attendance records for a specific batch
-router.get('/batch/:batchid', async (req, res) => {
-  const batchid = req.params.batchid;
+router.get('/batch/:batchId', async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      "SELECT id, batchid, date, studentname, status FROM attendance WHERE batchid = ? ORDER BY date DESC",
-      [batchid]
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    const attendance = await Attendance.find({ batchid: req.params.batchId })
+      .populate('marked_by', 'name')
+      .sort({ date: -1 });
+    
+    res.json(attendance);
+  } catch (error) {
+    console.error('Get batch attendance error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Check if attendance already exists for student on specific date
-router.get('/check/:batchid/:date', async (req, res) => {
-  const { batchid, date } = req.params;
+router.get('/date/:date/batch/:batchId', async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      "SELECT COUNT(*) as count FROM attendance WHERE batchid = ? AND date = ?",
-      [batchid, date]
-    );
-    res.json({ exists: rows[0].count > 0 });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    const { date, batchId } = req.params;
+    
+    const attendance = await Attendance.find({
+      date: new Date(date),
+      batchid: batchId
+    }).populate('marked_by', 'name');
+    
+    res.json(attendance);
+  } catch (error) {
+    console.error('Get date attendance error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Bulk attendance submit with duplicate check
-router.post('/bulk', async (req, res) => {
-  const attendanceList = req.body;
-  
-  if (!Array.isArray(attendanceList) || attendanceList.length === 0)
-    return res.status(400).json({ message: "No attendance records provided" });
-
-  const batchid = attendanceList[0].batchid;
-  const date = attendanceList[0].date;
-
-  try {
-    // Check if attendance already exists for this batch on this date
-    const [existing] = await pool.query(
-      "SELECT COUNT(*) as count FROM attendance WHERE batchid = ? AND date = ?",
-      [batchid, date]
-    );
-
-    if (existing[0].count > 0) {
-      return res.status(400).json({ 
-        message: `Attendance for this batch on ${date} has already been recorded. Please delete the existing records first if you want to update.` 
-      });
-    }
-
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-      
-      for (const record of attendanceList) {
-        await conn.query(
-          "INSERT INTO attendance (batchid, date, studentname, status, marked_by) VALUES (?, ?, ?, ?, ?)",
-          [record.batchid, record.date, record.studentname, record.status, record.marked_by || null]
-        );
-      }
-      
-      await conn.commit();
-      res.status(201).json({ message: "Attendance records added successfully" });
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
-    }
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Delete attendance for a specific batch and date
-router.delete('/batch/:batchid/date/:date', async (req, res) => {
-  const { batchid, date } = req.params;
-  try {
-    await pool.query(
-      "DELETE FROM attendance WHERE batchid = ? AND date = ?",
-      [batchid, date]
-    );
-    res.json({ message: "Attendance records deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Get dashboard statistics
 router.get('/stats/dashboard', async (req, res) => {
   try {
-    const [totalStudents] = await pool.query(
-      "SELECT COUNT(*) as count FROM users WHERE role = 'student'"
-    );
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     
-    const [totalBatches] = await pool.query(
-      "SELECT COUNT(*) as count FROM batches"
-    );
+    const totalStudents = await User.countDocuments({ role: 'student' });
+    const totalBatches = await Batch.countDocuments();
+    const totalBatchOwners = await User.countDocuments({ role: 'batch_owner' });
     
-    const [totalBatchOwners] = await pool.query(
-      "SELECT COUNT(*) as count FROM users WHERE role = 'batch_owner'"
-    );
+    const todayAttendance = await Attendance.countDocuments({
+      date: { $gte: today }
+    });
     
-    const [todayAttendance] = await pool.query(
-      "SELECT COUNT(*) as count FROM attendance WHERE date = CURDATE()"
-    );
+    const todayPresent = await Attendance.countDocuments({
+      date: { $gte: today },
+      status: {$in :['present','late']},
+    });
     
-    const [todayPresent] = await pool.query(
-      "SELECT COUNT(*) as count FROM attendance WHERE date = CURDATE() AND status = 'present'"
-    );
-    
-    const [todayAbsent] = await pool.query(
-      "SELECT COUNT(*) as count FROM attendance WHERE date = CURDATE() AND status = 'absent'"
-    );
+    const todayAbsent = await Attendance.countDocuments({
+      date: { $gte: today },
+      status: { $in: ['absent', 'late'] }
+    });
     
     res.json({
-      totalStudents: totalStudents[0].count,
-      totalBatches: totalBatches[0].count,
-      totalBatchOwners: totalBatchOwners[0].count,
-      todayAttendance: todayAttendance[0].count,
-      todayPresent: todayPresent[0].count,
-      todayAbsent: todayAbsent[0].count
+      totalStudents,
+      totalBatches,
+      totalBatchOwners,
+      todayAttendance,
+      todayPresent,
+      todayAbsent
     });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch (error) {
+    console.error('Get stats error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Get today's attendance for a specific batch
-router.get('/today/:batchid', async (req, res) => {
-  const { batchid } = req.params;
-  const today = new Date().toISOString().split('T')[0];
-  
+router.post('/', async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      "SELECT * FROM attendance WHERE batchid = ? AND date = ?",
-      [batchid, today]
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    const { attendance, marked_by } = req.body;
+    
+    const batchIds = [...new Set(attendance.map(a => a.batchid))];
+    const batches = await Batch.find({ _id: { $in: batchIds } });
+    const batchMap = {};
+    batches.forEach(b => batchMap[b._id.toString()] = b.name);
+    
+    const attendanceRecords = attendance.map(record => ({
+      ...record,
+      batch_name: batchMap[record.batchid],
+      marked_by,
+      date: new Date(record.date)
+    }));
+    
+    const result = await Attendance.insertMany(attendanceRecords, { 
+      ordered: false 
+    }).catch(err => {
+      if (err.code === 11000) {
+        return { insertedCount: err.writeErrors ? attendance.length - err.writeErrors.length : 0 };
+      }
+      throw err;
+    });
+    
+    res.status(201).json({ 
+      message: 'Attendance recorded successfully',
+      count: result.insertedCount || result.length
+    });
+  } catch (error) {
+    console.error('Create attendance error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Update attendance record
-router.put('/update/:id', async (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-  
+router.put('/:id', async (req, res) => {
   try {
-    await pool.query(
-      "UPDATE attendance SET status = ? WHERE id = ?",
-      [status, id]
-    );
-    res.json({ message: "Attendance updated successfully" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    const { status } = req.body;
+    
+    const updatedAttendance = await Attendance.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true }
+    ).populate('batchid', 'name').populate('marked_by', 'name');
+    
+    if (!updatedAttendance) {
+      return res.status(404).json({ message: 'Attendance record not found' });
+    }
+    
+    res.json(updatedAttendance);
+  } catch (error) {
+    console.error('Update attendance error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// ========== NEW ROUTES FOR EDIT ATTENDANCE PAGE ==========
-
-// Get all unique dates where attendance was marked for a batch
-router.get('/dates/:batchid', async (req, res) => {
-  const { batchid } = req.params;
-  
+router.delete('/:id', async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      "SELECT DISTINCT date FROM attendance WHERE batchid = ? ORDER BY date DESC",
-      [batchid]
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Get attendance for specific batch and date
-router.get('/batch/:batchid/date/:date', async (req, res) => {
-  const { batchid, date } = req.params;
-  
-  try {
-    const [rows] = await pool.query(
-      "SELECT * FROM attendance WHERE batchid = ? AND date = ? ORDER BY studentname",
-      [batchid, date]
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    const deletedAttendance = await Attendance.findByIdAndDelete(req.params.id);
+    
+    if (!deletedAttendance) {
+      return res.status(404).json({ message: 'Attendance record not found' });
+    }
+    
+    res.json({ message: 'Attendance deleted successfully' });
+  } catch (error) {
+    console.error('Delete attendance error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

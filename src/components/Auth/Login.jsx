@@ -21,7 +21,6 @@ const Login = () => {
     try {
       const user = await login(email, password);
       
-      // Navigate based on role
       if (user.role === 'admin') {
         navigate('/admin/dashboard');
       } else if (user.role === 'batch_owner') {

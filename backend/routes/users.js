@@ -1,90 +1,112 @@
 import express from 'express';
-import pool from '../db.js';
-import { authenticateToken, authorizeRole } from '../middleware/auth.js';
+import bcrypt from 'bcrypt';
+import User from '../models/User.js';
+import Batch from '../models/Batch.js';
 
 const router = express.Router();
 
-// Get all users (Admin only)
-router.get('/', authenticateToken, authorizeRole('admin'), async (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const [users] = await pool.query("SELECT id, name, email, role, batch_id FROM users");
+    const users = await User.find()
+      .populate('batch_id', 'name')
+      .select('-password')
+      .sort({ createdAt: -1 });
     res.json(users);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Get users by batch (Students in a batch)
-router.get('/batch/:batchId', authenticateToken, async (req, res) => {
-  const batchId = req.params.batchId;
+router.get('/:id', async (req, res) => {
   try {
-    const [users] = await pool.query(
-      "SELECT id, name, email, role FROM users WHERE batch_id = ? AND role = 'student'", 
-      [batchId]
-    );
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Add user
-router.post('/', authenticateToken, authorizeRole('admin'), async (req, res) => {
-  const { name, email, password, role, batch_id } = req.body;
-  
-  if (!name || !email || !password || !role) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-
-  try {
-    await pool.query(
-      "INSERT INTO users (name, email, password, role, batch_id) VALUES (?, ?, ?, ?, ?)",
-      [name, email, password, role, batch_id || null]
-    );
-    res.status(201).json({ message: "User added successfully" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-// Add these routes to your existing users.js file
-
-// Update user
-router.put('/:id', async (req, res) => {
-  const { id } = req.params;
-  const { name, email, password, batch_id } = req.body;
-  
-  try {
-    let query = "UPDATE users SET name = ?, email = ?, batch_id = ?";
-    let params = [name, email, batch_id];
+    const user = await User.findById(req.params.id)
+      .populate('batch_id', 'name')
+      .select('-password');
     
-    // Only update password if provided
-    if (password) {
-      query += ", password = ?";
-      params.push(password);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
     }
     
-    query += " WHERE id = ?";
-    params.push(id);
-    
-    await pool.query(query, params);
-    res.json({ message: "User updated successfully" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.json(user);
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
-// Delete user
-router.delete('/:id', async (req, res) => {
-  const { id } = req.params;
-  
+router.post('/', async (req, res) => {
   try {
-    await pool.query("DELETE FROM users WHERE id = ?", [id]);
-    res.json({ message: "User deleted successfully" });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    const { name, email, password, role, batch_id } = req.body;
+    
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+    
+    const hashedPassword = await bcrypt.hash(password, 10);
+    
+    const newUser = new User({
+      name,
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      role,
+      batch_id: batch_id || null
+    });
+    
+    await newUser.save();
+    
+    const userResponse = await User.findById(newUser._id)
+      .populate('batch_id', 'name')
+      .select('-password');
+    
+    res.status(201).json(userResponse);
+  } catch (error) {
+    console.error('Create user error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
+router.put('/:id', async (req, res) => {
+  try {
+    const { name, email, password, role, batch_id } = req.body;
+    
+    const updateData = { name, email: email.toLowerCase(), role, batch_id };
+    
+    if (password) {
+      updateData.password = await bcrypt.hash(password, 10);
+    }
+    
+    const updatedUser = await User.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    ).populate('batch_id', 'name').select('-password');
+    
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json(updatedUser);
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const deletedUser = await User.findByIdAndDelete(req.params.id);
+    
+    if (!deletedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    res.json({ message: 'User deleted successfully' });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 export default router;

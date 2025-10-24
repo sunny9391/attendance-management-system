@@ -1,35 +1,50 @@
-import express from "express";
-import cors from "cors";
-import { config } from "dotenv";
+import dotenv from 'dotenv';
+dotenv.config();
 
-// Import route files
-import userRoutes from "./routes/users.js";
-import batchRoutes from "./routes/batches.js";
-import attendanceRoutes from "./routes/attendance.js";
-import authRoutes from "./routes/auth.js";
+import express from 'express';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import connectDB from './db.js';
 
-
-config(); // Load environment variables from .env
+import authRoutes from './routes/auth.js';
+import usersRoutes from './routes/users.js';
+import batchesRoutes from './routes/batches.js';
+import attendanceRoutes from './routes/attendance.js';
 
 const app = express();
 
-// Middleware
-app.use(cors());
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+connectDB();
+
+app.use(cors({
+  origin: process.env.FRONTEND_URL || '*',
+  credentials: true
+}));
 app.use(express.json());
 
-// Routes
-app.use("/api/users", userRoutes);
-app.use("/api/batches", batchRoutes);
-app.use("/api/attendance", attendanceRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/users', usersRoutes);
+app.use('/api/batches', batchesRoutes);
+app.use('/api/attendance', attendanceRoutes);
 
-app.use("/api/auth", authRoutes);
-// Test root endpoint
-app.get("/", (req, res) => {
-  res.send("✅ Attendance API is running");
+app.get('/health', (req, res) => {
+  res.json({ status: 'OK', message: 'Server is running' });
 });
 
-// Start server
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, '../build')));
+  
+  app.get(/.*/, (req, res) => {
+    res.sendFile(path.join(__dirname, '../build', 'index.html'));
+  });
+}
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
+
+export default app;
